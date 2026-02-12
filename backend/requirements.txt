@@ -3,11 +3,11 @@ djangorestframework
 django-cors-headers
 djangorestframework-simplejwt
 langchain
-langchain-openai
+langchain-text-splitter
+langchain-google-genai
 langchain-chroma
 chromadb
 beautifulsoup4
 requests
 PyPDF2
 python-dotenv
-openai

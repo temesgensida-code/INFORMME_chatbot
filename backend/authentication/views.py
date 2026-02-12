@@ -4,9 +4,10 @@ from django.utils.encoding import force_bytes, force_str
 from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from authentication.serializers import UserSerializer
+from authentication.serializers import UserSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework import status
@@ -77,6 +78,79 @@ class ActivateAccountView(APIView):
             return Response({"message": "Account activated successfully!"}, status=200)
         
         return Response({"error": "Activation link is invalid!"}, status=400)
+
+
+class ForgotPasswordView(APIView):
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        email = serializer.validated_data['email']
+        user = User.objects.filter(email=email).first()
+
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+            reset_url = f"{frontend_url}/?mode=reset&uid={uid}&token={token}"
+
+            subject = 'Reset your password'
+            message = render_to_string('password_reset_email.html', {
+                'user': user,
+                'reset_url': reset_url,
+            })
+
+            email_drive = EmailMessage(subject, message, to=[user.email])
+            email_drive.content_subtype = "html"
+            email_drive.send()
+
+        return Response({"message": "If this email exists, a reset link has been sent."}, status=200)
+
+
+class VerifyResetTokenView(APIView):
+    def get(self, request):
+        uidb64 = request.query_params.get('uid')
+        token = request.query_params.get('token')
+
+        if not uidb64 or not token:
+            return Response({"error": "Missing reset token data."}, status=400)
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({"error": "Invalid reset link."}, status=400)
+
+        if default_token_generator.check_token(user, token):
+            return Response({"message": "Reset token is valid."}, status=200)
+
+        return Response({"error": "Reset token is invalid or expired."}, status=400)
+
+
+class ResetPasswordView(APIView):
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        uidb64 = serializer.validated_data['uid']
+        token = serializer.validated_data['token']
+        new_password = serializer.validated_data['password']
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({"error": "Invalid reset link."}, status=400)
+
+        if not default_token_generator.check_token(user, token):
+            return Response({"error": "Reset token is invalid or expired."}, status=400)
+
+        user.set_password(new_password)
+        user.save()
+
+        return Response({"message": "Password reset successful. You can now log in."}, status=200)
 
 class CustomTokenRefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):

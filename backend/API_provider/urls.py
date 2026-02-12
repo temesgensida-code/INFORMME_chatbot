@@ -23,6 +23,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('authentication.urls')),
     path('api/chatbot/', include('chatbot.urls')),
+    path('api/knowledge-base/', include('knowledge_base.urls')),
 ]
 
 if settings.DEBUG:

@@ -4,7 +4,8 @@ from .models import Document, ChatSession, Message
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed']
+        fields = ['id', 'title', 'source_type', 'file', 'url', 'uploaded_at', 'is_processed']
+        read_only_fields = ['source_type', 'url', 'uploaded_at', 'is_processed']
 
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:

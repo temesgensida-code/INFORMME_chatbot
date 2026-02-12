@@ -1,4 +1,6 @@
-from langchain_openai import ChatOpenAI
+import os
+
+from langchain_google_genai import ChatGoogleGenerativeAI
 try:
     from langchain.prompts import ChatPromptTemplate
 except ModuleNotFoundError:
@@ -8,8 +10,13 @@ from .vectore_store import get_vector_db
 
 class RAGEngine:
     def __init__(self):
-        # Initialize the LLM (GPT-4o or 3.5-turbo)
-        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        if not google_api_key:
+            raise ValueError("GOOGLE_API_KEY is not configured.")
+
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0, google_api_key=google_api_key)
         self.db = get_vector_db()
 
     def generate_response(self, user_query):
@@ -45,12 +52,27 @@ class RAGEngine:
         chain = prompt | self.llm
 
         # 3. Invoke LLM
-        response = chain.invoke({
-            "context": context_text,
-            "question": user_query
-        })
+        try:
+            response = chain.invoke({
+                "context": context_text,
+                "question": user_query
+            })
+            answer_text = response.content
+        except Exception as err:
+            error_text = str(err).lower()
+            if "insufficient_quota" in error_text or "error code: 429" in error_text or "quota" in error_text:
+                fallback = context_text.strip()
+                if not fallback:
+                    fallback = "No indexed context is available yet. Please upload a PDF or process a URL first."
+
+                answer_text = (
+                    "Gemini quota is currently exceeded, so this is a context-only fallback response:\n\n"
+                    f"{fallback[:1200]}"
+                )
+            else:
+                raise
 
         return {
-            "answer": response.content,
+            "answer": answer_text,
             "sources": sources
         }
