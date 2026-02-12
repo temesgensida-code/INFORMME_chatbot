@@ -1,0 +1,8 @@
+<p>Hello {{ user.email }},</p>
+<p>Thanks for registering. Please activate your account by clicking the link below:</p>
+<p>
+  <a href="http://{{ domain }}/api/auth/activate/{{ uid }}/{{ token }}/">
+    Activate your account
+  </a>
+</p>
+<p>If you did not create this account, you can ignore this email.</p>

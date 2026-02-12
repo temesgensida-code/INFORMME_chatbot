@@ -1,0 +1,13 @@
+django==5.0
+djangorestframework
+django-cors-headers
+djangorestframework-simplejwt
+langchain
+langchain-openai
+langchain-chroma
+chromadb
+beautifulsoup4
+requests
+PyPDF2
+python-dotenv
+openai
