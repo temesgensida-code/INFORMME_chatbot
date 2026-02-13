@@ -10,6 +10,7 @@ from .utils.rag_helper import (
     scrape_website_content,
     EmbeddingQuotaError,
     remove_source_from_vector_store,
+    clear_all_vector_store_data,
 )
 
 
@@ -151,3 +152,33 @@ class AdminDocumentDeleteView(APIView):
 
         document.delete()
         return Response({"message": "Document removed successfully."}, status=200)
+
+
+class AdminContextRefreshView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    def post(self, request):
+        documents = Document.objects.all()
+        removed_documents = documents.count()
+
+        try:
+            removed_vectors = clear_all_vector_store_data()
+        except ValueError as err:
+            return Response({"error": str(err)}, status=503)
+        except Exception:
+            return Response({"error": "Failed to clear context cache right now. Please try again."}, status=503)
+
+        for document in documents:
+            if document.file:
+                document.file.delete(save=False)
+
+        documents.delete()
+
+        return Response(
+            {
+                "message": "Context cache refreshed successfully.",
+                "removed_documents": removed_documents,
+                "removed_vectors": removed_vectors,
+            },
+            status=200,
+        )

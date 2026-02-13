@@ -200,3 +200,21 @@ def remove_source_from_vector_store(source):
 
     vector_db = get_vector_store()
     vector_db.delete(where={"source": source})
+
+
+def clear_all_vector_store_data():
+    """Removes all stored vectors from the collection."""
+    vector_db = get_vector_store()
+
+    removed_count = 0
+    try:
+        removed_count = int(vector_db._collection.count())
+    except Exception:
+        existing = vector_db.get(include=[])
+        ids = existing.get("ids") if isinstance(existing, dict) else None
+        if ids:
+            removed_count = len(ids)
+
+    vector_db.delete_collection()
+    get_vector_store()
+    return removed_count
