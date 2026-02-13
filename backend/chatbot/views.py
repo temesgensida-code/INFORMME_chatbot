@@ -47,34 +47,3 @@ class ChatInterfaceView(APIView):
             "answer": result['answer'],
             "sources": result['sources']
         })
-
-class ChatView(APIView):
-    def post(self, request):
-        query = request.data.get('query')
-        if not query:
-            return Response({"error": "No query provided"}, status=400)
-
-        engine = RAGEngine()
-        result = engine.generate_response(query)
-        
-        return Response(result) # Returns {"answer": "...", "sources": [...]}
-class ChatView(APIView):
-    def post(self, request):
-        user_query = request.data.get('query')
-        
-        # 1. Search for relevant context
-        vector_db = get_vector_store()
-        docs = vector_db.similarity_search(user_query, k=3) # Get top 3 paragraphs
-        context = "\n\n".join([doc.page_content for doc in docs])
-
-        # 2. Build the prompt
-        prompt = f"""
-        Answer the question based ONLY on the context below:
-        Context: {context}
-        Question: {user_query}
-        """
-
-        # 3. Call Gemini (or your preferred LLM)
-        # response = llm.invoke(prompt)
-        
-        return Response({"response": "AI Answer...", "sources": [d.metadata for d in docs]})

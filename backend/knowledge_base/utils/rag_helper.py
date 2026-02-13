@@ -96,7 +96,7 @@ def query_rag_system(user_query):
     return "AI response based on context..."
 
 import os
-from langchain_chroma import Chroma
+import sys
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # Directory where your vector data will live
@@ -127,6 +127,20 @@ def get_vector_store():
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key:
         raise ValueError("GOOGLE_API_KEY is not configured.")
+
+    try:
+        from langchain_chroma import Chroma
+    except ModuleNotFoundError as err:  # pragma: no cover
+        raise ValueError(
+            "Vector DB dependencies are not installed. Install 'langchain-chroma' and 'chromadb' to enable RAG."
+        ) from err
+    except Exception as err:  # pragma: no cover
+        if sys.version_info >= (3, 14):
+            raise ValueError(
+                "Chroma/Chromadb is currently incompatible with Python 3.14+. "
+                "Use Python 3.12 or 3.11 for vector DB (recreate your venv, then reinstall requirements)."
+            ) from err
+        raise
 
     embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
     embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model, google_api_key=google_api_key)
@@ -177,3 +191,12 @@ def embed_and_store(raw_text, metadata, chunks=None):
             time.sleep(sleep_seconds)
     
     return len(chunks)
+
+
+def remove_source_from_vector_store(source):
+    """Removes all vector entries associated with a given source metadata value."""
+    if not source:
+        return
+
+    vector_db = get_vector_store()
+    vector_db.delete(where={"source": source})

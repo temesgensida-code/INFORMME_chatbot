@@ -1,6 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 from .models import Document, ChatSession
 from .serializers import DocumentSerializer, ChatSessionSerializer
 from .utils.rag_helper import (
@@ -9,10 +9,16 @@ from .utils.rag_helper import (
     query_rag_system,
     scrape_website_content,
     EmbeddingQuotaError,
+    remove_source_from_vector_store,
 )
 
+
+class IsSuperUser(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
 class DocumentUploadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperUser]
 
     def post(self, request):
         uploaded_file = request.FILES.get('file')
@@ -33,6 +39,8 @@ class DocumentUploadView(APIView):
 
         try:
             chunks = process_context_to_embeddings(text, {"source": doc.file.name})
+        except ValueError as err:
+            return Response({"error": str(err)}, status=503)
         except EmbeddingQuotaError as err:
             return Response({"error": str(err)}, status=429)
         except Exception:
@@ -56,7 +64,7 @@ class DocumentUploadView(APIView):
     
 # In views.py
 class WebsiteLinkView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperUser]
 
     def post(self, request):
         url = request.data.get('url')
@@ -69,6 +77,8 @@ class WebsiteLinkView(APIView):
         if raw_text:
             try:
                 num_chunks = process_context_to_embeddings(raw_text, {"source": url})
+            except ValueError as err:
+                return Response({"error": str(err)}, status=503)
             except EmbeddingQuotaError as err:
                 return Response({"error": str(err)}, status=429)
             except Exception:
@@ -107,3 +117,37 @@ class ChatView(APIView):
         ai_response = query_rag_system(user_query)
 
         return Response({"response": ai_response})
+
+
+class AdminDocumentListView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    def get(self, request):
+        documents = Document.objects.all().order_by('-uploaded_at')
+        serializer = DocumentSerializer(documents, many=True)
+        return Response(serializer.data)
+
+
+class AdminDocumentDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    def delete(self, request, document_id):
+        try:
+            document = Document.objects.get(id=document_id)
+        except Document.DoesNotExist:
+            return Response({"error": "Document not found."}, status=404)
+
+        source = document.url if document.source_type == 'url' else document.file.name
+
+        try:
+            remove_source_from_vector_store(source)
+        except ValueError as err:
+            return Response({"error": str(err)}, status=503)
+        except Exception:
+            return Response({"error": "Failed to clear processed context cache right now. Please try again."}, status=503)
+
+        if document.file:
+            document.file.delete(save=False)
+
+        document.delete()
+        return Response({"message": "Document removed successfully."}, status=200)

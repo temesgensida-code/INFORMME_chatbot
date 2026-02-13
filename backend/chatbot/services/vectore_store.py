@@ -1,5 +1,5 @@
 import os
-from langchain_chroma import Chroma
+import sys
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # Define where the vector data is stored
@@ -14,6 +14,22 @@ def get_vector_db():
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key:
         raise ValueError("GOOGLE_API_KEY is not configured.")
+
+    try:
+        from langchain_chroma import Chroma
+    except ModuleNotFoundError as err:  # pragma: no cover
+        raise ValueError(
+            "Vector DB dependencies are not installed. Install 'langchain-chroma' and 'chromadb' to enable RAG."
+        ) from err
+    except Exception as err:  # pragma: no cover
+        # Chroma/Chromadb currently relies on Pydantic v1 compatibility layers that
+        # are not compatible with Python 3.14+.
+        if sys.version_info >= (3, 14):
+            raise ValueError(
+                "Chroma/Chromadb is currently incompatible with Python 3.14+. "
+                "Use Python 3.12 or 3.11 for the chatbot RAG features (recreate your venv, then reinstall requirements)."
+            ) from err
+        raise
 
     embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
     embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model, google_api_key=google_api_key)

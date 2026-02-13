@@ -3,7 +3,7 @@ djangorestframework
 django-cors-headers
 djangorestframework-simplejwt
 langchain
-langchain-text-splitter
+langchain-text-splitters
 langchain-google-genai
 langchain-chroma
 chromadb
