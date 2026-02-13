@@ -2,6 +2,61 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import './App.css'
 
+const decodeJwtPayload = (token) => {
+  if (!token) {
+    return null
+  }
+
+  try {
+    const payloadPart = token.split('.')[1]
+    const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const normalized = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+    return JSON.parse(atob(normalized))
+  } catch {
+    return null
+  }
+}
+
+const hasValidAccessToken = () => {
+  const token = localStorage.getItem('access_token')
+  if (!token) {
+    return false
+  }
+
+  const payload = decodeJwtPayload(token)
+  const exp = payload?.exp
+  if (!exp) {
+    localStorage.removeItem('access_token')
+    return false
+  }
+
+  const nowInSeconds = Math.floor(Date.now() / 1000)
+  const isValid = exp > nowInSeconds
+
+  if (!isValid) {
+    localStorage.removeItem('access_token')
+  }
+
+  return isValid
+}
+
+const isSuperuserFromToken = () => {
+  const token = localStorage.getItem('access_token')
+  const payload = decodeJwtPayload(token)
+  return Boolean(payload?.is_superuser)
+}
+
+const getPageFromPath = () => {
+  const path = window.location.pathname
+  if (path === '/admin') {
+    return 'admin'
+  }
+  if (path === '/chatbot') {
+    return 'chatbot'
+  }
+  return null
+}
+
 const authApi = axios.create({
   baseURL: 'http://127.0.0.1:8000/api/auth',
   withCredentials: true,
@@ -18,7 +73,9 @@ const knowledgeApi = axios.create({
 })
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(localStorage.getItem('access_token')))
+  const [isAuthenticated, setIsAuthenticated] = useState(hasValidAccessToken())
+  const [isSuperuser, setIsSuperuser] = useState(isSuperuserFromToken())
+  const [currentPage, setCurrentPage] = useState(getPageFromPath() || (isSuperuserFromToken() ? 'admin' : 'chatbot'))
   const [mode, setMode] = useState('login')
   const [resetVerified, setResetVerified] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -26,6 +83,8 @@ function App() {
   const [error, setError] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [resourceLoading, setResourceLoading] = useState(false)
+  const [adminLoading, setAdminLoading] = useState(false)
+  const [adminDocuments, setAdminDocuments] = useState([])
 
   const [sessionId, setSessionId] = useState(null)
   const [chatMessages, setChatMessages] = useState([])
@@ -96,7 +155,11 @@ function App() {
   }
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('access_token')
+    const token = hasValidAccessToken() ? localStorage.getItem('access_token') : null
+    if (!token) {
+      return {}
+    }
+
     return {
       Authorization: `Bearer ${token}`,
     }
@@ -107,6 +170,15 @@ function App() {
     setResetVerified(false)
     setMessage('')
     setError('')
+  }
+
+  const navigateToPage = (page, replace = false) => {
+    const nextPath = page === 'admin' ? '/admin' : '/chatbot'
+    if (window.location.pathname !== nextPath) {
+      const historyMethod = replace ? 'replaceState' : 'pushState'
+      window.history[historyMethod]({}, '', nextPath)
+    }
+    setCurrentPage(page)
   }
 
   const handleLoginChange = (event) => {
@@ -146,6 +218,28 @@ function App() {
   }
 
   useEffect(() => {
+    const nextAuthenticated = hasValidAccessToken()
+    const nextSuperuser = isSuperuserFromToken()
+    const pathPage = getPageFromPath()
+
+    setIsAuthenticated(nextAuthenticated)
+    setIsSuperuser(nextSuperuser)
+
+    if (!nextAuthenticated) {
+      setCurrentPage('login')
+      if (window.location.pathname === '/admin' || window.location.pathname === '/chatbot') {
+        window.history.replaceState({}, '', '/')
+      }
+    } else if (nextSuperuser) {
+      if (pathPage === 'chatbot' || pathPage === 'admin') {
+        setCurrentPage(pathPage)
+      } else {
+        navigateToPage('admin', true)
+      }
+    } else {
+      navigateToPage('chatbot', true)
+    }
+
     const params = new URLSearchParams(window.location.search)
     const nextMode = params.get('mode')
     const uid = params.get('uid')
@@ -160,6 +254,29 @@ function App() {
       }))
     }
   }, [])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (!isAuthenticated) {
+        return
+      }
+
+      const pathPage = getPageFromPath()
+      if (isSuperuser) {
+        if (pathPage === 'admin' || pathPage === 'chatbot') {
+          setCurrentPage(pathPage)
+          return
+        }
+        navigateToPage('admin', true)
+        return
+      }
+
+      navigateToPage('chatbot', true)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [isAuthenticated, isSuperuser])
 
   useEffect(() => {
     const verifyToken = async () => {
@@ -204,6 +321,9 @@ function App() {
       if (access) {
         localStorage.setItem('access_token', access)
         setIsAuthenticated(true)
+        const nextSuperuser = isSuperuserFromToken()
+        setIsSuperuser(nextSuperuser)
+        navigateToPage(nextSuperuser ? 'admin' : 'chatbot', true)
       }
 
       setMessage('Login successful.')
@@ -282,12 +402,40 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('access_token')
     setIsAuthenticated(false)
+    setIsSuperuser(false)
+    setCurrentPage('login')
+    window.history.replaceState({}, '', '/')
     setSessionId(null)
     setChatMessages([])
+    setAdminDocuments([])
     setChatQuery('')
     setMessage('Logged out successfully.')
     setError('')
   }
+
+  const fetchAdminDocuments = async () => {
+    if (!isAuthenticated || !isSuperuser) {
+      return
+    }
+
+    setAdminLoading(true)
+    try {
+      const response = await knowledgeApi.get('/admin/documents/', {
+        headers: getAuthHeaders(),
+      })
+      setAdminDocuments(Array.isArray(response?.data) ? response.data : [])
+    } catch (err) {
+      setError(parseError(err))
+    } finally {
+      setAdminLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isAuthenticated && isSuperuser && currentPage === 'admin') {
+      fetchAdminDocuments()
+    }
+  }, [isAuthenticated, isSuperuser, currentPage])
 
   const handlePdfUpload = async (event) => {
     event.preventDefault()
@@ -314,6 +462,7 @@ function App() {
 
       setMessage(response?.data?.message || 'PDF uploaded and processed.')
       setUploadData({ title: '', file: null })
+      await fetchAdminDocuments()
     } catch (err) {
       setError(parseError(err))
     } finally {
@@ -333,6 +482,7 @@ function App() {
       })
       setMessage(response?.data?.message || 'Website content processed.')
       setUrlData({ url: '' })
+      await fetchAdminDocuments()
     } catch (err) {
       setError(parseError(err))
     } finally {
@@ -385,84 +535,177 @@ function App() {
     }
   }
 
+  const handleDeleteDocument = async (documentId) => {
+    setResourceLoading(true)
+    setError('')
+    setMessage('')
+
+    try {
+      const response = await knowledgeApi.delete(`/admin/documents/${documentId}/`, {
+        headers: getAuthHeaders(),
+      })
+      setMessage(response?.data?.message || 'Document removed successfully.')
+      await fetchAdminDocuments()
+    } catch (err) {
+      setError(parseError(err))
+    } finally {
+      setResourceLoading(false)
+    }
+  }
+
   if (isAuthenticated) {
+    if (isSuperuser && currentPage === 'admin') {
+      const pdfDocuments = adminDocuments.filter((doc) => doc.source_type === 'pdf')
+      const urlDocuments = adminDocuments.filter((doc) => doc.source_type === 'url')
+
+      return (
+        <main className="auth-page">
+          <section className="dashboard-card">
+            <div className="dashboard-header">
+              <h1>Admin Page</h1>
+              <div>
+                <button type="button" onClick={() => navigateToPage('chatbot')}>To /chatbot</button>
+                <button type="button" onClick={handleLogout}>Logout</button>
+              </div>
+            </div>
+
+            <div className="dashboard-grid">
+              <div className="panel">
+                <h2>Add PDF Context</h2>
+                <form className="auth-form" onSubmit={handlePdfUpload}>
+                  <input
+                    type="text"
+                    name="title"
+                    placeholder="Optional title"
+                    value={uploadData.title}
+                    onChange={handleUploadChange}
+                  />
+                  <input
+                    type="file"
+                    name="file"
+                    accept="application/pdf"
+                    onChange={handleUploadChange}
+                    required
+                  />
+                  <button type="submit" disabled={resourceLoading}>
+                    {resourceLoading ? 'Processing...' : 'Upload PDF'}
+                  </button>
+                </form>
+
+                <h2>Add URL Context</h2>
+                <form className="auth-form" onSubmit={handleUrlIngest}>
+                  <input
+                    type="url"
+                    name="url"
+                    placeholder="https://example.com"
+                    value={urlData.url}
+                    onChange={handleUrlChange}
+                    required
+                  />
+                  <button type="submit" disabled={resourceLoading}>
+                    {resourceLoading ? 'Processing...' : 'Process URL'}
+                  </button>
+                </form>
+              </div>
+
+              <div className="panel">
+                <h2>Uploaded PDFs</h2>
+                {adminLoading ? (
+                  <p>Loading documents...</p>
+                ) : pdfDocuments.length === 0 ? (
+                  <p>No uploaded PDFs found.</p>
+                ) : (
+                  pdfDocuments.map((doc) => (
+                    <div key={doc.id} className="chat-message ai">
+                      <p>{doc.title}</p>
+                      <small>{doc.is_processed ? 'Processed' : 'Pending processing'}</small>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDocument(doc.id)}
+                          disabled={resourceLoading}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                <h2 style={{ marginTop: '1rem' }}>Processed URLs</h2>
+                {adminLoading ? (
+                  <p>Loading documents...</p>
+                ) : urlDocuments.length === 0 ? (
+                  <p>No processed URLs found.</p>
+                ) : (
+                  urlDocuments.map((doc) => (
+                    <div key={doc.id} className="chat-message ai">
+                      <p>{doc.url || doc.title}</p>
+                      <small>{doc.is_processed ? 'Processed' : 'Pending processing'}</small>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDocument(doc.id)}
+                          disabled={resourceLoading}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {message && <p className="status success">{message}</p>}
+            {error && <p className="status error">{error}</p>}
+          </section>
+        </main>
+      )
+    }
+
     return (
       <main className="auth-page">
         <section className="dashboard-card">
           <div className="dashboard-header">
             <h1>AI Knowledge Chat</h1>
-            <button type="button" onClick={handleLogout}>Logout</button>
+            <div>
+              {isSuperuser && (
+                <button type="button" onClick={() => navigateToPage('admin')}>To /admin</button>
+              )}
+              <button type="button" onClick={handleLogout}>Logout</button>
+            </div>
           </div>
 
-          <div className="dashboard-grid">
-            <div className="panel">
-              <h2>Add PDF Context</h2>
-              <form className="auth-form" onSubmit={handlePdfUpload}>
-                <input
-                  type="text"
-                  name="title"
-                  placeholder="Optional title"
-                  value={uploadData.title}
-                  onChange={handleUploadChange}
-                />
-                <input
-                  type="file"
-                  name="file"
-                  accept="application/pdf"
-                  onChange={handleUploadChange}
-                  required
-                />
-                <button type="submit" disabled={resourceLoading}>
-                  {resourceLoading ? 'Processing...' : 'Upload PDF'}
-                </button>
-              </form>
-
-              <h2>Add URL Context</h2>
-              <form className="auth-form" onSubmit={handleUrlIngest}>
-                <input
-                  type="url"
-                  name="url"
-                  placeholder="https://example.com"
-                  value={urlData.url}
-                  onChange={handleUrlChange}
-                  required
-                />
-                <button type="submit" disabled={resourceLoading}>
-                  {resourceLoading ? 'Processing...' : 'Process URL'}
-                </button>
-              </form>
+          <div className="panel chat-panel">
+            <h2>Chatbot</h2>
+            <div className="chat-box">
+              {chatMessages.length === 0 ? (
+                <p className="chat-placeholder">Ask a question based on uploaded context.</p>
+              ) : (
+                chatMessages.map((item, index) => (
+                  <div key={`${item.role}-${index}`} className={`chat-message ${item.role}`}>
+                    <p>{item.content}</p>
+                    {item.role === 'ai' && Array.isArray(item.sources) && item.sources.length > 0 && (
+                      <small>Sources: {item.sources.join(', ')}</small>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
 
-            <div className="panel chat-panel">
-              <h2>Chatbot</h2>
-              <div className="chat-box">
-                {chatMessages.length === 0 ? (
-                  <p className="chat-placeholder">Upload PDF or process a URL, then ask a question.</p>
-                ) : (
-                  chatMessages.map((item, index) => (
-                    <div key={`${item.role}-${index}`} className={`chat-message ${item.role}`}>
-                      <p>{item.content}</p>
-                      {item.role === 'ai' && Array.isArray(item.sources) && item.sources.length > 0 && (
-                        <small>Sources: {item.sources.join(', ')}</small>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <form className="chat-form" onSubmit={handleChatSubmit}>
-                <input
-                  type="text"
-                  placeholder="Ask based on uploaded PDF or URL content"
-                  value={chatQuery}
-                  onChange={(event) => setChatQuery(event.target.value)}
-                  required
-                />
-                <button type="submit" disabled={chatLoading}>
-                  {chatLoading ? 'Thinking...' : 'Send'}
-                </button>
-              </form>
-            </div>
+            <form className="chat-form" onSubmit={handleChatSubmit}>
+              <input
+                type="text"
+                placeholder="Ask based on uploaded PDF or URL content"
+                value={chatQuery}
+                onChange={(event) => setChatQuery(event.target.value)}
+                required
+              />
+              <button type="submit" disabled={chatLoading}>
+                {chatLoading ? 'Thinking...' : 'Send'}
+              </button>
+            </form>
           </div>
 
           {message && <p className="status success">{message}</p>}
@@ -492,13 +735,13 @@ function App() {
           >
             Register
           </button>
-          <button
+          {/* <button
             type="button"
             className={mode === 'forgot' ? 'active' : ''}
             onClick={() => handleModeChange('forgot')}
           >
             Forgot
-          </button>
+          </button> */}
         </div>
 
         {mode === 'login' ? (
