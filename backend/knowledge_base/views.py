@@ -9,6 +9,7 @@ from .utils.rag_helper import (
     query_rag_system,
     scrape_website_content,
     EmbeddingQuotaError,
+    EmbeddingAuthError,
     remove_source_from_vector_store,
     clear_all_vector_store_data,
 )
@@ -36,15 +37,32 @@ class DocumentUploadView(APIView):
 
         text = extract_text_from_pdf(doc.file.path)
         if not text.strip():
+            if doc.file:
+                doc.file.delete(save=False)
+            doc.delete()
             return Response({"error": "Could not extract text from PDF."}, status=400)
 
         try:
             chunks = process_context_to_embeddings(text, {"source": doc.file.name})
+        except EmbeddingAuthError as err:
+            if doc.file:
+                doc.file.delete(save=False)
+            doc.delete()
+            return Response({"error": str(err)}, status=403)
         except ValueError as err:
+            if doc.file:
+                doc.file.delete(save=False)
+            doc.delete()
             return Response({"error": str(err)}, status=503)
         except EmbeddingQuotaError as err:
+            if doc.file:
+                doc.file.delete(save=False)
+            doc.delete()
             return Response({"error": str(err)}, status=429)
         except Exception:
+            if doc.file:
+                doc.file.delete(save=False)
+            doc.delete()
             return Response({"error": "Failed to process PDF content right now. Please try again."}, status=503)
 
         doc.is_processed = True
@@ -78,6 +96,8 @@ class WebsiteLinkView(APIView):
         if raw_text:
             try:
                 num_chunks = process_context_to_embeddings(raw_text, {"source": url})
+            except EmbeddingAuthError as err:
+                return Response({"error": str(err)}, status=403)
             except ValueError as err:
                 return Response({"error": str(err)}, status=503)
             except EmbeddingQuotaError as err:

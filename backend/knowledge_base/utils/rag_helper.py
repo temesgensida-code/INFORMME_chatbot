@@ -111,6 +111,10 @@ class EmbeddingQuotaError(Exception):
     pass
 
 
+class EmbeddingAuthError(Exception):
+    pass
+
+
 def _extract_retry_seconds(error_text):
     match = re.search(r"retry in\s*([0-9]+(?:\.[0-9]+)?)s", error_text, flags=re.IGNORECASE)
     if match:
@@ -176,6 +180,12 @@ def embed_and_store(raw_text, metadata, chunks=None):
         except Exception as err:
             error_text = str(err)
             lower_text = error_text.lower()
+
+            is_auth_error = "permission_denied" in lower_text or "api key" in lower_text or "authentication" in lower_text
+            if is_auth_error:
+                raise EmbeddingAuthError(
+                    "Embedding service authentication failed. Update GOOGLE_API_KEY in backend/.env and restart the backend."
+                ) from err
 
             is_quota_error = "resource_exhausted" in lower_text or "429" in lower_text or "quota" in lower_text
             if not is_quota_error:

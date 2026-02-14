@@ -166,7 +166,14 @@ Stop the other process using the port or run Vite on another port.
 - Ensure `GOOGLE_API_KEY` is valid
 - If needed, use **Refresh Cache** and re-upload context
 
-### 4) CORS errors
+### 4) `403 PERMISSION_DENIED` with "API key was reported as leaked"
+- The current Google API key is revoked and cannot be reused.
+- Create a new key in Google AI Studio / Google Cloud.
+- Update `backend/.env` with the new `GOOGLE_API_KEY`.
+- Restart backend server (`python manage.py runserver`) or rebuild Docker.
+- Restrict the new key by API and rotate keys if it was exposed in logs/screenshots.
+
+### 5) CORS errors
 Make sure frontend runs on `http://localhost:5173` (or update backend CORS settings accordingly).
 
 ---

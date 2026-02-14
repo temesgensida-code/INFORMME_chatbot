@@ -130,6 +130,8 @@ class ChatInterfaceStreamView(APIView):
                     "session_id": session.id,
                     "sources": sources,
                 }) + "\n"
+            except ValueError as err:
+                yield json.dumps({"type": "error", "error": str(err)}) + "\n"
             except Exception as err:
                 error_message = str(err) if settings.DEBUG else "AI service is currently unavailable."
                 yield json.dumps({"type": "error", "error": error_message}) + "\n"

@@ -1,4 +1,5 @@
 import os
+import logging
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 try:
@@ -7,6 +8,9 @@ except ModuleNotFoundError:
     # LangChain split prompts into langchain_core in newer releases.
     from langchain_core.prompts import ChatPromptTemplate
 from .vectore_store import get_vector_db
+
+
+logger = logging.getLogger(__name__)
 
 class RAGEngine:
     def __init__(self):
@@ -20,9 +24,14 @@ class RAGEngine:
         self.db = get_vector_db()
 
     def _build_chain(self, user_query):
-        results = self.db.similarity_search(user_query, k=4)
+        try:
+            results = self.db.similarity_search(user_query, k=4)
+        except Exception as err:
+            logger.warning("RAG retrieval failed; proceeding without context: %s", err)
+            results = []
+
         context_text = "\n\n---\n\n".join([doc.page_content for doc in results])
-        sources = list(set([doc.metadata.get('source') for doc in results]))
+        sources = [source for source in {doc.metadata.get('source') for doc in results} if source]
 
         template = """
         You are a helpful assistant for our website. Use the following pieces of context
@@ -48,7 +57,29 @@ class RAGEngine:
 
     def _is_quota_error(self, err):
         error_text = str(err).lower()
-        return "insufficient_quota" in error_text or "error code: 429" in error_text or "quota" in error_text
+        return (
+            "insufficient_quota" in error_text
+            or "error code: 429" in error_text
+            or "resource_exhausted" in error_text
+            or "rate limit" in error_text
+            or "quota" in error_text
+        )
+
+    def _is_auth_error(self, err):
+        error_text = str(err).lower()
+        return (
+            "permission_denied" in error_text
+            or "api key was reported as leaked" in error_text
+            or "api key not valid" in error_text
+            or "invalid api key" in error_text
+            or "request had invalid authentication credentials" in error_text
+        )
+
+    def _auth_error_message(self):
+        return (
+            "Google API key is invalid or has been revoked (possibly leaked). "
+            "Create a new key in Google AI Studio, update backend/.env GOOGLE_API_KEY, and restart the backend server."
+        )
 
     def _quota_fallback(self, context_text):
         fallback = context_text.strip()
@@ -74,6 +105,8 @@ class RAGEngine:
             response = chain.invoke(payload)
             answer_text = response.content
         except Exception as err:
+            if self._is_auth_error(err):
+                raise ValueError(self._auth_error_message()) from err
             if self._is_quota_error(err):
                 answer_text = self._quota_fallback(context_text)
             else:
@@ -94,6 +127,8 @@ class RAGEngine:
                     if text:
                         yield text
             except Exception as err:
+                if self._is_auth_error(err):
+                    raise ValueError(self._auth_error_message()) from err
                 if self._is_quota_error(err):
                     yield self._quota_fallback(context_text)
                 else:
