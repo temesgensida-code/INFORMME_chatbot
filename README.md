@@ -56,9 +56,18 @@ GOOGLE_API_KEY=your_google_api_key
 GEMINI_MODEL=gemini-2.5-flash
 GEMINI_EMBEDDING_MODEL=models/gemini-embedding-001
 SMTP_PASSWORD=your_smtp_app_password
+GOOGLE_OAUTH_CLIENT_ID=your_google_oauth_web_client_id
+```
+
+Create `frontend/.env` (or copy from `frontend/.env.example`) and set:
+
+```env
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_web_client_id
 ```
 
 > `GOOGLE_API_KEY` is required for embedding + chat generation.
+> `GOOGLE_OAUTH_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` must be the same Google OAuth **Web application** client ID.
+> In Google Cloud Console, add authorized JavaScript origins for `http://localhost:5173` and `http://127.0.0.1:5173`.
 
 ---
 
@@ -105,6 +114,10 @@ docker compose up --build
 Then open:
 - Frontend: **http://localhost:5173**
 - Backend: **http://localhost:8000**
+
+Note for Google login in Docker:
+- Ensure `frontend/.env` exists before `docker compose up --build`.
+- `docker-compose.yml` now loads `./frontend/.env` into the frontend service.
 
 To stop:
 
