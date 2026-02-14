@@ -11,3 +11,4 @@ beautifulsoup4
 requests
 PyPDF2
 python-dotenv
+google-auth

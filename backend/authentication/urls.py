@@ -8,6 +8,7 @@ from .views import (
     ForgotPasswordView,
     VerifyResetTokenView,
     ResetPasswordView,
+    GoogleLoginView,
 )
 
 urlpatterns = [
@@ -20,4 +21,5 @@ urlpatterns = [
     path('forgot-password/', ForgotPasswordView.as_view(), name='forgot_password'),
     path('reset-password/verify/', VerifyResetTokenView.as_view(), name='verify_reset_token'),
     path('reset-password/', ResetPasswordView.as_view(), name='reset_password'),
+    path('google-login/', GoogleLoginView.as_view(), name='google_login'),
     ]

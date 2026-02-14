@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { authApi } from '../api/clients'
 import { getPageFromPath, hasValidAccessToken, isSuperuserFromToken } from '../utils/auth'
 import parseError from '../utils/parseError'
@@ -199,6 +199,36 @@ function useAuthFlow({ setMessage, setError }) {
     }
   }
 
+  const handleGoogleLogin = useCallback(async (credential) => {
+    if (!credential) {
+      setError('Google authentication failed. Missing credential token.')
+      return
+    }
+
+    setLoading(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const response = await authApi.post('/google-login/', { credential })
+      const access = response?.data?.access
+
+      if (access) {
+        localStorage.setItem('access_token', access)
+        setIsAuthenticated(true)
+        const nextSuperuser = isSuperuserFromToken()
+        setIsSuperuser(nextSuperuser)
+        navigateToPage(nextSuperuser ? 'admin' : 'chatbot', true)
+      }
+
+      setMessage('Google login successful.')
+    } catch (err) {
+      setError(parseError(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [setError, setMessage])
+
   const handleRegister = async (event) => {
     event.preventDefault()
     setLoading(true)
@@ -293,6 +323,7 @@ function useAuthFlow({ setMessage, setError }) {
     handleForgotChange,
     handleResetChange,
     handleLogin,
+    handleGoogleLogin,
     handleRegister,
     handleForgotPassword,
     handleResetPassword,

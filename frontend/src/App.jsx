@@ -92,6 +92,7 @@ function App() {
       handleRegister={auth.handleRegister}
       handleForgotPassword={auth.handleForgotPassword}
       handleResetPassword={auth.handleResetPassword}
+      handleGoogleLogin={auth.handleGoogleLogin}
       handleLoginChange={auth.handleLoginChange}
       handleRegisterChange={auth.handleRegisterChange}
       handleForgotChange={auth.handleForgotChange}

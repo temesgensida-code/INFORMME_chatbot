@@ -162,3 +162,4 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'temesgensids@gmail.com'
 EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD')
 DEFAULT_FROM_EMAIL = 'temesgensids@gmail.com'
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')

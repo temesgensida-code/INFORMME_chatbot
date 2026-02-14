@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 function AuthPage({
   mode,
   loading,
@@ -13,11 +15,82 @@ function AuthPage({
   handleRegister,
   handleForgotPassword,
   handleResetPassword,
+  handleGoogleLogin,
   handleLoginChange,
   handleRegisterChange,
   handleForgotChange,
   handleResetChange,
 }) {
+  const googleButtonRef = useRef(null)
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+
+    if (mode !== 'login' || !clientId || !handleGoogleLogin) {
+      return undefined
+    }
+
+    let cancelled = false
+    let boundScript = null
+
+    const renderGoogleButton = () => {
+      if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) {
+        return
+      }
+
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response) => {
+          if (response?.credential) {
+            handleGoogleLogin(response.credential)
+          }
+        },
+      })
+
+      googleButtonRef.current.innerHTML = ''
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        shape: 'pill',
+        width: 320,
+        text: 'signin_with',
+      })
+    }
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton()
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const existingScript = document.getElementById('google-identity-script')
+    if (existingScript) {
+      boundScript = existingScript
+      existingScript.addEventListener('load', renderGoogleButton)
+      return () => {
+        cancelled = true
+        existingScript.removeEventListener('load', renderGoogleButton)
+      }
+    }
+
+    const script = document.createElement('script')
+    script.id = 'google-identity-script'
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.addEventListener('load', renderGoogleButton)
+    document.body.appendChild(script)
+    boundScript = script
+
+    return () => {
+      cancelled = true
+      if (boundScript) {
+        boundScript.removeEventListener('load', renderGoogleButton)
+      }
+    }
+  }, [mode, handleGoogleLogin])
+
   return (
     <main className="auth-page">
       <section className="auth-card">
@@ -68,6 +141,8 @@ function AuthPage({
             >
               Forgot password?
             </button>
+            <div className="oauth-separator">or</div>
+            <div className="google-login-wrapper" ref={googleButtonRef} />
           </form>
         ) : mode === 'register' ? (
           <form className="auth-form" onSubmit={handleRegister}>

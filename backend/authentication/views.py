@@ -5,6 +5,8 @@ from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from authentication.serializers import UserSerializer, ForgotPasswordSerializer, ResetPasswordSerializer, CustomTokenObtainPairSerializer
@@ -54,6 +56,16 @@ def set_refresh_cookie(response, refresh_token):
         samesite=settings.SIMPLE_JWT['AUTH_COOKIE_SAMESITE'],
         path='/api/token/refresh/', # Security: only sent to the refresh endpoint
     )
+
+
+def build_auth_response_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    refresh['is_superuser'] = user.is_superuser
+    refresh['email'] = user.email
+
+    response = Response({"access": str(refresh.access_token)}, status=status.HTTP_200_OK)
+    set_refresh_cookie(response, str(refresh))
+    return response
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
@@ -190,3 +202,96 @@ class LogoutView(APIView):
             
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GoogleLoginView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        credential = request.data.get('credential')
+        client_id = str(getattr(settings, 'GOOGLE_OAUTH_CLIENT_ID', '')).strip().strip('"')
+
+        if not client_id:
+            return Response({"error": "Google OAuth is not configured on the server."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not credential:
+            return Response({"error": "Missing Google credential token."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            token_payload = id_token.verify_oauth2_token(
+                credential,
+                google_requests.Request(),
+                client_id,
+            )
+        except ValueError as oauth_error:
+            try:
+                token_payload = id_token.verify_token(
+                    credential,
+                    google_requests.Request(),
+                )
+            except ValueError as token_error:
+                error_message = "Invalid Google token."
+                if settings.DEBUG:
+                    error_message = f"Invalid Google token: {token_error}"
+                return Response({"error": error_message}, status=status.HTTP_400_BAD_REQUEST)
+
+            audience = token_payload.get('aud')
+            authorized_party = token_payload.get('azp')
+
+            audience_matches = audience == client_id or (
+                isinstance(audience, list) and client_id in audience
+            )
+            azp_matches = authorized_party == client_id
+
+            if not (audience_matches or azp_matches):
+                error_message = "Google token audience does not match this app client."
+                if settings.DEBUG:
+                    error_message = (
+                        f"Google token audience mismatch (aud={audience}, azp={authorized_party}, "
+                        f"client_id={client_id}, oauth_error={oauth_error})."
+                    )
+                return Response({"error": error_message}, status=status.HTTP_400_BAD_REQUEST)
+
+            issuer = token_payload.get('iss')
+            if issuer not in {'accounts.google.com', 'https://accounts.google.com'}:
+                return Response({"error": "Invalid Google token issuer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = token_payload.get('email')
+        if not email:
+            return Response({"error": "Google account email is unavailable."}, status=status.HTTP_400_BAD_REQUEST)
+
+        email_verified = token_payload.get('email_verified', False)
+        if not email_verified:
+            return Response({"error": "Google account email is not verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        first_name = token_payload.get('given_name', '')
+        last_name = token_payload.get('family_name', '')
+
+        user, created = User.objects.get_or_create(
+            email=email,
+            defaults={
+                'first_name': first_name,
+                'last_name': last_name,
+                'is_active': True,
+            },
+        )
+
+        if created:
+            user.set_unusable_password()
+            user.save()
+        else:
+            updated_fields = []
+            if not user.first_name and first_name:
+                user.first_name = first_name
+                updated_fields.append('first_name')
+            if not user.last_name and last_name:
+                user.last_name = last_name
+                updated_fields.append('last_name')
+            if not user.is_active:
+                user.is_active = True
+                updated_fields.append('is_active')
+            if updated_fields:
+                user.save(update_fields=updated_fields)
+
+        return build_auth_response_for_user(user)
