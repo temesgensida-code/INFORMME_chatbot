@@ -70,8 +70,36 @@ VITE_GOOGLE_CLIENT_ID=your_google_oauth_web_client_id
 > In Google Cloud Console, add authorized JavaScript origins for `http://localhost:5173` and `http://127.0.0.1:5173`.
 
 ---
+## Run Option A: Docker (Single Command)
 
-## Run Option A: Local Development (No Docker)
+From project root:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+- Frontend: **http://localhost:5173**
+- Backend: **http://localhost:8000**
+
+Note for Google login in Docker:
+- Ensure `frontend/.env` exists before `docker compose up --build`.
+- `docker-compose.yml` now loads `./frontend/.env` into the frontend service.
+
+To stop:
+
+```bash
+docker compose down
+```
+
+To also remove volumes:
+
+```bash
+docker compose down -v
+```
+---
+
+## Run Option B: Local Development (No Docker)
 
 ### Backend (Terminal 1)
 
@@ -103,33 +131,6 @@ Frontend runs at: **http://localhost:5173**
 
 ---
 
-## Run Option B: Docker (Single Command)
-
-From project root:
-
-```bash
-docker compose up --build
-```
-
-Then open:
-- Frontend: **http://localhost:5173**
-- Backend: **http://localhost:8000**
-
-Note for Google login in Docker:
-- Ensure `frontend/.env` exists before `docker compose up --build`.
-- `docker-compose.yml` now loads `./frontend/.env` into the frontend service.
-
-To stop:
-
-```bash
-docker compose down
-```
-
-To also remove volumes:
-
-```bash
-docker compose down -v
-```
 
 ---
 

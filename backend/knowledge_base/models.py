@@ -12,7 +12,7 @@ class Document(models.Model):
 class ChatSession(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
+#messages
 class Message(models.Model):
     session = models.ForeignKey(ChatSession, related_name='messages', on_delete=models.CASCADE)
     sender = models.CharField(max_length=10, choices=[('user', 'User'), ('ai', 'AI')])
